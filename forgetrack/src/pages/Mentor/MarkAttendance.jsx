@@ -33,9 +33,9 @@ export default function MarkAttendance() {
         .from('sessions')
         .select('*')
         .eq('date', currentDate)
-        .single();
+        .maybeSingle();
 
-      if (sessionError && sessionError.code !== 'PGRST116') {
+      if (sessionError) {
         console.error('Error fetching session:', sessionError);
       }
 

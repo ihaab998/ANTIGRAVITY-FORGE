@@ -190,20 +190,20 @@ CREATE POLICY "Users read own" ON public.users FOR SELECT USING (id = auth.uid()
 CREATE POLICY "Mentors read all users" ON public.users FOR SELECT USING (public.is_mentor());
 
 -- Students policies
-CREATE POLICY "Mentors full students" ON public.students FOR ALL USING (public.is_mentor());
+CREATE POLICY "Mentors full students" ON public.students FOR ALL USING (public.is_mentor()) WITH CHECK (public.is_mentor());
 CREATE POLICY "Students read own row" ON public.students FOR SELECT USING (id = public.get_my_student_id());
 
 -- Sessions policies
-CREATE POLICY "Mentors full sessions" ON public.sessions FOR ALL USING (public.is_mentor());
+CREATE POLICY "Mentors full sessions" ON public.sessions FOR ALL USING (public.is_mentor()) WITH CHECK (public.is_mentor());
 CREATE POLICY "Students read sessions" ON public.sessions FOR SELECT USING (public.is_student());
 
 -- Materials policies
-CREATE POLICY "Mentors full materials" ON public.materials FOR ALL USING (public.is_mentor());
+CREATE POLICY "Mentors full materials" ON public.materials FOR ALL USING (public.is_mentor()) WITH CHECK (public.is_mentor());
 CREATE POLICY "Students read materials" ON public.materials FOR SELECT USING (public.is_student());
 
 -- Attendance policies
-CREATE POLICY "Mentors full attendance" ON public.attendance FOR ALL USING (public.is_mentor());
+CREATE POLICY "Mentors full attendance" ON public.attendance FOR ALL USING (public.is_mentor()) WITH CHECK (public.is_mentor());
 CREATE POLICY "Students read own attendance" ON public.attendance FOR SELECT USING (student_id = public.get_my_student_id());
 
 -- Import_log policies
-CREATE POLICY "Mentors full import_log" ON public.import_log FOR ALL USING (public.is_mentor());
+CREATE POLICY "Mentors full import_log" ON public.import_log FOR ALL USING (public.is_mentor()) WITH CHECK (public.is_mentor());
