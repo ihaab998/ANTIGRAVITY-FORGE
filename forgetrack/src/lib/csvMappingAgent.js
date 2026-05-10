@@ -6,7 +6,7 @@
  *
  * Phase 4 Step 2 — does NOT perform validation or DB writes.
  */
-console.log(import.meta.env.VITE_GEMINI_API_KEY);
+
 import { gemini } from './gemini';
 
 // ── Allowed target fields (enum) ──
@@ -42,7 +42,7 @@ export const ATTENDANCE_CONVENTIONS = ['TRUE/FALSE', 'P/A', 'Present/Absent', '1
 // ── System prompt ──
 const SYSTEM_PROMPT = `You are a CSV attendance mapping assistant for an educational bootcamp.
 
-You will receive spreadsheet column headers and the first 5 sample data rows.
+You will receive spreadsheet column headers and the first few sample data rows.
 
 Your task is to map each source column to ONE of these target fields:
 - student_name
@@ -76,50 +76,128 @@ Return ONLY valid JSON in this exact format:
 If the sheet is NOT pivoted, set is_pivoted to false and date_columns to an empty array.`;
 
 /**
+ * Helper to wait for a specific duration
+ */
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
  * Call Gemini to map CSV columns to the ForgeTrack schema.
+ * Implements Step 3 (Size reduction), Step 5 (Fallback), Step 7 (Retry logic).
  *
  * @param {string[]} headers — the column headers from the uploaded file
- * @param {Object[]} sampleRows — the first 5 rows of data
+ * @param {Object[]} sampleRows — the first few rows of data
+ * @param {number} attempt — internal retry attempt counter
+ * @param {string} forcedModel — internal fallback model override
  * @returns {Promise<Object>} — the validated mapping response
- * @throws {Error} — on API failure, malformed JSON, or invalid fields
  */
-export async function getColumnMapping(headers, sampleRows) {
+export async function getColumnMapping(headers, sampleRows, attempt = 0, forcedModel = null) {
+  // ── STEP 8: Verify Environment ──
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'undefined') {
+    throw new Error('VITE_GEMINI_API_KEY is missing or invalid.');
+  }
+
+  // ── STEP 3: Reduce Token Size ──
+  const optimizedHeaders = headers.slice(0, 20); // max 20 headers
+  const optimizedRows = sampleRows.slice(0, 3).map(row => { // max 3 rows
+    const newRow = {};
+    optimizedHeaders.forEach(h => {
+      let val = row[h];
+      if (typeof val === 'string' && val.length > 100) {
+        val = val.substring(0, 100) + '...'; // truncate long values
+      }
+      newRow[h] = val;
+    });
+    return newRow;
+  });
+
+  const modelName = forcedModel || 'gemini-2.0-flash';
+  
+  // ── STEP 1: Debug Request (Safe Logging) ──
+  console.log('[Gemini Request] Start', {
+    model: modelName,
+    attempt: attempt + 1,
+    headersCount: optimizedHeaders.length,
+    rowsCount: optimizedRows.length,
+    payloadSizeApprox: JSON.stringify(optimizedHeaders).length + JSON.stringify(optimizedRows).length
+  });
+
   const userPrompt = `Here are the column headers and sample data from the uploaded attendance file:
 
 HEADERS:
-${JSON.stringify(headers)}
+${JSON.stringify(optimizedHeaders)}
 
-SAMPLE DATA (first ${sampleRows.length} rows):
-${JSON.stringify(sampleRows, null, 2)}
+SAMPLE DATA (first ${optimizedRows.length} rows):
+${JSON.stringify(optimizedRows, null, 2)}
 
 Please analyze and return the column mapping JSON.`;
 
   const model = gemini.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: modelName,
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0,
     },
   });
 
-  const result = await model.generateContent([SYSTEM_PROMPT, userPrompt]);
-  const responseText = result.response.text();
-
-  // Parse JSON
-  let parsed;
   try {
-    parsed = JSON.parse(responseText);
-  } catch {
-    throw new Error('AI returned invalid JSON. Please map columns manually.');
-  }
+    // ── STEP 4: Request Timeout (handled via Promise.race in UI, or here if needed) ──
+    const result = await model.generateContent([SYSTEM_PROMPT, userPrompt]);
+    const responseText = result.response.text();
 
-  // Validate structure
-  const validationError = validateMappingResponse(parsed);
-  if (validationError) {
-    throw new Error(validationError);
-  }
+    console.log('[Gemini Response] Success', {
+      model: modelName,
+      status: 'OK',
+      responseLength: responseText.length
+    });
 
-  return parsed;
+    // Parse JSON
+    let parsed;
+    try {
+      parsed = JSON.parse(responseText);
+    } catch {
+      throw new Error('AI returned invalid JSON. Please map columns manually.');
+    }
+
+    // Validate structure
+    const validationError = validateMappingResponse(parsed);
+    if (validationError) {
+      throw new Error(validationError);
+    }
+
+    return parsed;
+
+  } catch (err) {
+    const isRateLimit = err.message?.includes('429') || err.status === 429;
+    
+    console.warn('[Gemini Response] Error', {
+      model: modelName,
+      status: isRateLimit ? 429 : 'Error',
+      message: err.message
+    });
+
+    // ── STEP 5 & 7: Fallback & Retry Logic ──
+    if (isRateLimit) {
+      // 1st retry: after 2s with gemini-flash-latest fallback
+      if (attempt === 0) {
+        console.info('[Gemini Retry] Retrying with gemini-flash-latest in 2s...');
+        await wait(2000);
+        return getColumnMapping(headers, sampleRows, 1, 'gemini-flash-latest');
+      }
+      
+      // 2nd retry: after 5s with gemini-2.0-flash-lite
+      if (attempt === 1) {
+        console.info('[Gemini Retry] Retrying with gemini-2.0-flash-lite in 5s...');
+        await wait(5000);
+        return getColumnMapping(headers, sampleRows, 2, 'gemini-2.0-flash-lite');
+      }
+
+      // If all retries fail
+      throw new Error('AI_RATE_LIMIT');
+    }
+
+    throw err;
+  }
 }
 
 /**

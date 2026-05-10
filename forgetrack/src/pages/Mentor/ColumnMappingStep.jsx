@@ -54,31 +54,41 @@ export default function ColumnMappingStep({
 
   // ── Error / fallback state ──
   if (mappingError && !aiMapping) {
+    const isRateLimit = mappingError === 'AI_RATE_LIMIT';
+
     return (
       <div className="bg-surface rounded-2xl border border-border-default shadow-card overflow-hidden"
            style={{ backgroundImage: 'var(--card-gradient)' }}>
-        <div className="p-6 border-b border-border-subtle flex items-start gap-4">
+        <div className="p-6 border-b border-border-subtle flex flex-col md:flex-row items-start md:items-center gap-4">
           <div className="w-10 h-10 rounded-xl bg-warning/10 border border-warning/20 flex items-center justify-center shrink-0">
             <AlertTriangle size={20} className="text-warning" strokeWidth={1.75} />
           </div>
           <div className="flex-1">
-            <p className="text-h3 text-fg-primary">AI mapping failed</p>
-            <p className="text-body-sm text-fg-secondary mt-1">{mappingError}</p>
+            <p className="text-h3 text-fg-primary">
+              {isRateLimit ? 'AI mapping is temporarily rate-limited' : 'AI mapping failed'}
+            </p>
+            <p className="text-body-sm text-fg-secondary mt-1">
+              {isRateLimit 
+                ? 'The AI quota has been reached. You can try again in a few minutes or continue with manual mapping below.' 
+                : mappingError}
+            </p>
           </div>
-          <button
-            onClick={onRetryAI}
-            className="bg-surface-raised border border-border-default text-fg-primary px-4 py-2 rounded-md text-[13px] font-medium hover:bg-surface transition-colors flex items-center gap-2 shrink-0"
-          >
-            <RefreshCw size={14} />
-            Retry
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={onRetryAI}
+              className="bg-surface-raised border border-border-default text-fg-primary px-4 py-2 rounded-md text-[13px] font-medium hover:bg-surface transition-colors flex items-center gap-2"
+            >
+              <RefreshCw size={14} />
+              Retry
+            </button>
+            {isRateLimit && (
+              <div className="text-[13px] text-fg-tertiary px-3 py-2 border border-dashed border-border-subtle rounded-md bg-surface-inset">
+                Continue Manual Mapping Below
+              </div>
+            )}
+          </div>
         </div>
-        {/* Fall through to manual mapping below */}
-        <div className="p-5">
-          <p className="text-body-sm text-fg-secondary">
-            Map columns manually using the dropdowns below.
-          </p>
-        </div>
+        {/* Manual mapping table below */}
         <MappingTable
           headers={headers}
           previewRows={previewRows}

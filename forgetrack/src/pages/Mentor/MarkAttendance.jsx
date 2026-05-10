@@ -16,30 +16,52 @@ export default function MarkAttendance() {
   const [message, setMessage] = useState('');
 
   // Session Form State
+  const [allSessions, setAllSessions] = useState([]);
   const [topic, setTopic] = useState('');
   const [duration, setDuration] = useState(2.0);
   const [type, setType] = useState('offline');
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
-    fetchData();
+    fetchSessions();
   }, [currentDate]);
 
-  const fetchData = async () => {
+  useEffect(() => {
+    if (session?.id) {
+      fetchAttendance(session.id);
+    } else {
+      setAttendanceMap({});
+    }
+  }, [session?.id]);
+
+  const fetchSessions = async () => {
     setLoading(true);
     setMessage('');
     try {
-      // 1. Fetch Session
+      // 1. Fetch Sessions
       const { data: sessionData, error: sessionError } = await supabase
         .from('sessions')
         .select('*')
-        .eq('date', currentDate)
-        .maybeSingle();
+        .eq('date', currentDate);
 
       if (sessionError) {
-        console.error('Error fetching session:', sessionError);
+        console.error('Error fetching sessions:', sessionError);
       }
 
-      setSession(sessionData || null);
+      const sessionsList = sessionData || [];
+      setAllSessions(sessionsList);
+
+      // If we don't have a selected session or the selected one isn't for this date, pick the first one
+      if (sessionsList.length > 0) {
+        setSession(prev => {
+          if (prev && sessionsList.find(s => s.id === prev.id)) return prev;
+          return sessionsList[0];
+        });
+        setIsCreating(false);
+      } else {
+        setSession(null);
+        setIsCreating(true);
+      }
 
       // 2. Fetch Active Students
       const { data: studentData, error: studentError } = await supabase
@@ -51,27 +73,30 @@ export default function MarkAttendance() {
       if (studentError) throw studentError;
       setStudents(studentData || []);
 
-      // 3. If session exists, fetch attendance
-      const newMap = {};
-      if (sessionData) {
-        const { data: attendanceData } = await supabase
-          .from('attendance')
-          .select('student_id, present')
-          .eq('session_id', sessionData.id);
-
-        if (attendanceData) {
-          attendanceData.forEach(a => {
-            newMap[a.student_id] = a.present;
-          });
-        }
-      }
-      setAttendanceMap(newMap);
-
     } catch (err) {
       console.error(err);
-      setMessage('Failed to load data.');
+      setMessage('Failed to load sessions.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAttendance = async (sessionId) => {
+    try {
+      const { data: attendanceData } = await supabase
+        .from('attendance')
+        .select('student_id, present')
+        .eq('session_id', sessionId);
+
+      const newMap = {};
+      if (attendanceData) {
+        attendanceData.forEach(a => {
+          newMap[a.student_id] = a.present;
+        });
+      }
+      setAttendanceMap(newMap);
+    } catch (err) {
+      console.error('Error fetching attendance:', err);
     }
   };
 
@@ -93,6 +118,8 @@ export default function MarkAttendance() {
 
       if (error) throw error;
       setSession(data);
+      setAllSessions(prev => [...prev, data]);
+      setIsCreating(false);
       setMessage('Session created successfully.');
       setTopic('');
     } catch (err) {
@@ -171,10 +198,22 @@ export default function MarkAttendance() {
 
       {loading ? (
         <div className="text-fg-secondary animate-pulse">Loading data...</div>
-      ) : !session ? (
+      ) : isCreating ? (
         <div className="bg-surface rounded-2xl border border-border-default shadow-card p-8" style={{ backgroundImage: 'var(--card-gradient)' }}>
-          <h2 className="text-h3 text-fg-primary mb-2">No Session Found</h2>
-          <p className="text-body text-fg-secondary mb-8">There is no session scheduled for {currentDate}. Create one to mark attendance.</p>
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h2 className="text-h3 text-fg-primary mb-1">Create New Session</h2>
+              <p className="text-body text-fg-secondary">Schedule a new session for {currentDate}.</p>
+            </div>
+            {allSessions.length > 0 && (
+              <button 
+                onClick={() => setIsCreating(false)}
+                className="text-accent-glow font-medium text-[13px] hover:underline"
+              >
+                Cancel & Select Existing
+              </button>
+            )}
+          </div>
           
           <form onSubmit={handleCreateSession} className="flex flex-col gap-5 max-w-[400px]">
             <div className="flex flex-col gap-2">
@@ -226,16 +265,52 @@ export default function MarkAttendance() {
         </div>
       ) : (
         <div className="bg-surface rounded-2xl border border-border-default shadow-card overflow-hidden flex flex-col" style={{ backgroundImage: 'var(--card-gradient)' }}>
-          <div className="p-6 border-b border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-h3 text-fg-primary">{session.topic}</h2>
-              <div className="flex gap-3 mt-2">
-                <span className="text-caption text-fg-tertiary uppercase tracking-wider">{session.session_type}</span>
-                <span className="text-caption text-fg-tertiary uppercase tracking-wider">•</span>
-                <span className="text-caption text-fg-tertiary uppercase tracking-wider">{session.duration_hours} hours</span>
+          <div className="p-6 border-b border-border-subtle flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+            <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8 flex-1">
+              <div className="flex flex-col min-w-[200px]">
+                <label className="text-[10px] text-fg-tertiary font-bold uppercase tracking-widest mb-1.5">Select Session</label>
+                <div className="relative group">
+                  <select 
+                    value={session?.id || ''}
+                    onChange={(e) => {
+                      const selected = allSessions.find(s => s.id.toString() === e.target.value);
+                      setSession(selected);
+                    }}
+                    className="w-full bg-surface-inset border border-border-default rounded-lg pl-3 pr-8 py-2 text-fg-primary text-[14px] font-medium appearance-none focus:border-accent-glow outline-none transition-all cursor-pointer"
+                  >
+                    {allSessions.map(s => (
+                      <option key={s.id} value={s.id}>{s.topic}</option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-fg-tertiary group-hover:text-fg-secondary transition-colors">
+                    <Plus size={14} className="rotate-45" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col">
+                <label className="text-[10px] text-fg-tertiary font-bold uppercase tracking-widest mb-1.5">Details</label>
+                <div className="flex items-center gap-3">
+                  <span className="bg-surface-raised border border-border-subtle px-2.5 py-1 rounded-md text-[11px] font-bold text-fg-secondary uppercase tracking-tight">
+                    {session.session_type}
+                  </span>
+                  <span className="text-body-sm text-fg-tertiary font-medium">
+                    {session.duration_hours}h
+                  </span>
+                </div>
+              </div>
+              
+              <div className="md:ml-auto flex items-center gap-3">
+                <button 
+                  onClick={() => setIsCreating(true)}
+                  className="flex items-center gap-2 text-accent-glow font-semibold text-[13px] hover:bg-accent-glow/5 px-3 py-1.5 rounded-lg transition-colors border border-accent-glow/20"
+                >
+                  <Plus size={16} />
+                  New Session
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0">
               <button 
                 onClick={() => setAll(true)}
                 className="bg-surface-raised border border-border-default text-fg-primary px-4 py-2 rounded-md text-[13px] font-medium hover:bg-surface transition-colors"

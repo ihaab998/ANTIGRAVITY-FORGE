@@ -18,6 +18,7 @@ export default function Dashboard() {
   });
   
   const [todaySession, setTodaySession] = useState(null);
+  const [todaySessions, setTodaySessions] = useState([]);
   const [todayAttendance, setTodayAttendance] = useState({
     marked: false,
     presentCount: 0,
@@ -71,28 +72,37 @@ export default function Dashboard() {
         overallAttendance
       });
 
-      // 2. Today's Session
-      const currentSession = sessions.find(s => s.date === today);
-      setTodaySession(currentSession || null);
+      // 2. Today's Sessions
+      const todaySessions = sessions.filter(s => s.date === today);
+      setTodaySessions(todaySessions);
+      const currentSession = todaySessions[0] || null;
+      setTodaySession(currentSession);
 
-      // 3. Today's Attendance
-      if (currentSession) {
-        const todaysRecords = attendance.filter(a => a.session_id === currentSession.id);
-        if (todaysRecords.length > 0) {
-          const presentCount = todaysRecords.filter(a => a.present).length;
-          const totalCount = students.length;
-          const absentStudents = todaysRecords
-            .filter(a => !a.present)
-            .map(a => a.students.name)
-            .slice(0, 5);
+      // 3. Today's Attendance (Aggregate)
+      const todaySessionIds = todaySessions.map(s => s.id);
+      const todaysRecords = attendance.filter(a => todaySessionIds.includes(a.session_id));
+      
+      if (todaysRecords.length > 0) {
+        const presentCount = todaysRecords.filter(a => a.present).length;
+        const totalCount = students.length * todaySessions.length;
+        const absentStudents = todaysRecords
+          .filter(a => !a.present)
+          .map(a => a.students?.name || 'Unknown')
+          .slice(0, 5);
 
-          setTodayAttendance({
-            marked: true,
-            presentCount,
-            totalCount,
-            absentStudents
-          });
-        }
+        setTodayAttendance({
+          marked: true,
+          presentCount,
+          totalCount,
+          absentStudents
+        });
+      } else {
+        setTodayAttendance({
+          marked: false,
+          presentCount: 0,
+          totalCount: 0,
+          absentStudents: []
+        });
       }
 
       // 4. Program Overview (Highest / Lowest)
@@ -195,24 +205,33 @@ export default function Dashboard() {
       {/* Grid Layout */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
-        {/* Card 1: Today's Session */}
+        {/* Card 1: Today's Sessions */}
         <div className="bg-surface rounded-2xl border border-border-default shadow-card p-6 flex flex-col relative overflow-hidden" style={{ backgroundImage: 'var(--card-gradient)' }}>
           <div className="relative z-10 flex-1 flex flex-col">
-            <h2 className="text-h3 text-fg-primary mb-6">Today's Session</h2>
-            {todaySession ? (
-              <div className="flex flex-col gap-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-h2 text-fg-primary mb-1">{todaySession.topic}</p>
-                    <p className="text-body text-fg-secondary">{todaySession.date}</p>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-h3 text-fg-primary">Today's Sessions</h2>
+              {todaySessions.length > 0 && (
+                <span className="text-[10px] bg-accent-glow/10 text-accent-glow px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                  {todaySessions.length} PLANNED
+                </span>
+              )}
+            </div>
+            
+            {todaySessions.length > 0 ? (
+              <div className="flex flex-col gap-3">
+                {todaySessions.map((s, idx) => (
+                  <div key={s.id} className={`p-4 rounded-xl border ${idx === 0 ? 'bg-surface-raised border-accent-glow/20 shadow-sm' : 'bg-surface-inset border-border-subtle opacity-80'}`}>
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1 pr-4">
+                        <p className="text-body font-bold text-fg-primary truncate">{s.topic}</p>
+                        <p className="text-caption text-fg-tertiary mt-1 flex items-center gap-2">
+                          <Clock size={12} /> {s.duration_hours}h • {s.session_type}
+                        </p>
+                      </div>
+                      {idx === 0 && <span className="text-[10px] bg-accent-glow text-void px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0">Latest</span>}
+                    </div>
                   </div>
-                  <span className="inline-flex bg-surface-raised border border-border-subtle px-3 py-1 rounded-full text-[12px] font-medium text-fg-secondary capitalize">
-                    {todaySession.session_type}
-                  </span>
-                </div>
-                <div className="mt-auto pt-6 border-t border-border-subtle">
-                  <p className="text-body-sm text-fg-tertiary">Duration: {todaySession.duration_hours} hours</p>
-                </div>
+                ))}
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
@@ -231,7 +250,7 @@ export default function Dashboard() {
           <div className="relative z-10 flex-1 flex flex-col">
             <h2 className="text-h3 text-fg-primary mb-6">Today's Attendance</h2>
             
-            {!todaySession ? (
+            {todaySessions.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center">
                 <p className="text-body text-fg-tertiary">Create a session first to mark attendance.</p>
               </div>
@@ -247,31 +266,32 @@ export default function Dashboard() {
               <div className="flex flex-col gap-6">
                 <div className="flex items-end justify-between">
                   <div>
-                    <p className="text-display-lg text-fg-primary leading-none">{todayAttendance.presentCount} <span className="text-h3 text-fg-tertiary">/ {todayAttendance.totalCount}</span></p>
-                    <p className="text-body text-fg-secondary mt-2">Students Present</p>
+                    <p className="text-display-lg text-fg-primary leading-none">
+                      {todayAttendance.presentCount} 
+                      <span className="text-h3 text-fg-tertiary"> / {todayAttendance.totalCount}</span>
+                    </p>
+                    <p className="text-caption text-fg-secondary mt-2 uppercase tracking-widest font-bold">Aggregate Present</p>
                   </div>
-                  <CheckCircle2 size={32} className="text-success mb-1" />
+                  <div className="text-right">
+                    <p className="text-h2 text-success leading-none">
+                      {Math.round((todayAttendance.presentCount / todayAttendance.totalCount) * 100)}%
+                    </p>
+                    <p className="text-caption text-fg-tertiary mt-2">Avg. Participation</p>
+                  </div>
                 </div>
                 
-                <div className="w-full bg-surface-inset h-2 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-success" 
-                    style={{ width: `${(todayAttendance.presentCount / todayAttendance.totalCount) * 100}%` }}
-                  ></div>
-                </div>
-
-                {todayAttendance.absentStudents.length > 0 && (
-                  <div>
-                    <p className="text-caption text-fg-tertiary uppercase tracking-wider mb-2">Absent Students</p>
-                    <div className="flex flex-wrap gap-2">
-                      {todayAttendance.absentStudents.map((name, idx) => (
-                        <span key={idx} className="bg-danger-bg text-danger border border-danger-border px-2 py-1 rounded text-[12px] font-medium">
-                          {name}
-                        </span>
-                      ))}
-                    </div>
+                <div className="bg-surface-inset rounded-xl p-4 border border-border-subtle">
+                  <p className="text-caption text-fg-secondary uppercase tracking-wider mb-3">Recently Absent</p>
+                  <div className="flex flex-wrap gap-2">
+                    {todayAttendance.absentStudents.length > 0 ? todayAttendance.absentStudents.map((name, i) => (
+                      <span key={i} className="text-[11px] bg-danger/5 text-danger border border-danger/10 px-2 py-1 rounded">
+                        {name}
+                      </span>
+                    )) : (
+                      <span className="text-[11px] text-fg-tertiary italic">Full attendance across today's sessions!</span>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             )}
           </div>

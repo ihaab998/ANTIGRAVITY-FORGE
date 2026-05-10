@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS public.students (
 
 CREATE TABLE IF NOT EXISTS public.sessions (
     id SERIAL PRIMARY KEY,
-    date DATE NOT NULL UNIQUE,
+    date DATE NOT NULL,
     topic TEXT NOT NULL,
     month_number INTEGER NOT NULL,
     duration_hours DECIMAL(3,1) DEFAULT 2.0,
